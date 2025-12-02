@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M6: Meta-Analysis Engine (v15 Final)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        
+        /* Forest Plot Styles */
+        .forest-line { stroke: #475569; stroke-width: 2; stroke-linecap: round; }
+        .forest-box { fill: #3b82f6; opacity: 0.9; cursor: pointer; transition: opacity 0.2s; }
+        .forest-box:hover { opacity: 1; stroke: #1e3a8a; stroke-width: 1; }
+        .forest-diamond { fill: #dc2626; stroke: #991b1b; stroke-width: 1; }
+        .forest-pi { stroke: #ef4444; stroke-width: 2; stroke-dasharray: 4,4; stroke-opacity: 0.6; }
+        .forest-axis { stroke: #94a3b8; stroke-width: 1; }
+        .forest-grid { stroke: #e2e8f0; stroke-dasharray: 4; stroke-width: 1; }
+        .forest-null { stroke: #64748b; stroke-width: 1; stroke-dasharray: 5,5; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-slate-800">
+
+    <!-- HEADER -->
+    <header class="bg-slate-900 text-white p-4 shadow-lg flex justify-between items-center z-20">
+        <div>
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i class="fas fa-chart-pie text-emerald-400"></i>
+                MODULE 6: META-ENGINE PRO
+            </h1>
+            <p class="text-xs text-slate-400 mt-1">
+                HKSJ Adjustment • Prediction Intervals • Constitutional Safety
+            </p>
+        </div>
+        <div class="flex gap-3">
+            <label class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm font-bold border border-slate-600 transition cursor-pointer flex items-center gap-2 shadow-sm">
+                <i class="fas fa-file-upload text-emerald-400"></i> Import JSONs
+                <input type="file" id="file-input" multiple accept=".json" class="hidden" onchange="App.handleFiles(this.files)">
+            </label>
+            <button onclick="App.runAnalysis()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded text-sm font-bold shadow-md transition text-white flex items-center gap-2">
+                <i class="fas fa-calculator"></i> Calculate
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN WORKSPACE -->
+    <div class="flex-1 flex overflow-hidden">
+        
+        <!-- LEFT: EVIDENCE LIST -->
+        <div class="w-1/3 bg-white border-r border-slate-200 flex flex-col z-10 shadow-lg relative">
+            
+            <!-- List Header -->
+            <div class="p-3 bg-slate-50 border-b border-slate-200 font-bold text-slate-700 text-xs uppercase flex justify-between items-center">
+                <span><i class="fas fa-list mr-2 text-indigo-500"></i>Evidence List</span>
+                <span id="study-count" class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] border border-indigo-200">0 studies</span>
+            </div>
+            
+            <!-- Study List Container -->
+            <div id="study-list" class="flex-1 overflow-y-auto p-0 bg-slate-50/50">
+                <!-- Empty State -->
+                <div class="h-full flex flex-col items-center justify-center text-slate-400">
+                    <i class="fas fa-file-medical-alt text-4xl mb-3 opacity-20"></i>
+                    <p class="text-xs font-bold uppercase tracking-wider">No Data Loaded</p>
+                    <p class="text-[10px] mt-1">Import outputs from System v12/v13</p>
+                    <button onclick="App.loadDemoData()" class="mt-4 text-xs text-indigo-600 hover:text-indigo-800 underline">
+                        Load SGLT2i Demo Data
+                    </button>
+                </div>
+            </div>
+
+            <!-- Analysis Configuration -->
+            <div class="p-4 border-t border-slate-200 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-xs font-bold text-slate-500 uppercase">Pooling Method</h3>
+                    <div class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-mono">Log Scale</div>
+                </div>
+                
+                <div class="flex gap-2 mb-3">
+                    <label class="flex-1 relative cursor-pointer group">
+                        <input type="radio" name="model" value="fixed" class="peer sr-only" onchange="App.runAnalysis()">
+                        <div class="p-2 border rounded text-center text-xs font-bold text-slate-500 peer-checked:bg-emerald-50 peer-checked:border-emerald-500 peer-checked:text-emerald-700 transition">
+                            Fixed (IV)
+                        </div>
+                    </label>
+                    <label class="flex-1 relative cursor-pointer group">
+                        <input type="radio" name="model" value="random" class="peer sr-only" checked onchange="App.runAnalysis()">
+                        <div class="p-2 border rounded text-center text-xs font-bold text-slate-500 peer-checked:bg-emerald-50 peer-checked:border-emerald-500 peer-checked:text-emerald-700 transition">
+                            Random (DL)
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Advanced Options -->
+                <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="use-hksj" class="accent-emerald-600 rounded" checked onchange="App.runAnalysis()">
+                        <span class="text-[10px] font-bold text-slate-600">HKSJ Adjustment</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="show-pi" class="accent-emerald-600 rounded" checked onchange="App.runAnalysis()">
+                        <span class="text-[10px] font-bold text-slate-600">Prediction Interval</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT: FOREST PLOT & STATISTICS -->
+        <div class="w-2/3 bg-white flex flex-col relative">
+            
+            <!-- Statistics Bar -->
+            <div class="h-16 bg-white border-b border-slate-200 flex items-center px-6 justify-between shadow-sm z-10">
+                <div class="flex gap-8 divide-x divide-slate-100">
+                    
+                    <!-- Pooled Effect -->
+                    <div class="pr-6">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Pooled Effect</p>
+                        <div class="flex items-baseline gap-2">
+                            <span class="text-xl font-bold text-slate-800" id="stat-pool">--</span>
+                            <span class="text-xs font-mono text-slate-500" id="stat-ci">[ -- ]</span>
+                        </div>
+                    </div>
+
+                    <!-- Heterogeneity -->
+                    <div class="px-6">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Heterogeneity</p>
+                        <div class="flex items-baseline gap-3">
+                            <div>
+                                <span class="text-xs text-slate-500 mr-1">I²=</span>
+                                <span class="text-lg font-bold text-slate-700" id="stat-i2">--</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-slate-500 mr-1">τ²=</span>
+                                <span class="text-lg font-bold text-slate-700" id="stat-tau">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Significance -->
+                    <div class="px-6">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">p-Value</p>
+                        <div class="flex items-baseline gap-1">
+                            <span class="text-xl font-bold text-slate-700" id="stat-p">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tools -->
+                <div class="flex gap-2">
+                    <button onclick="App.downloadPlot()" class="text-xs bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-50 hover:text-slate-800 transition flex items-center gap-2">
+                        <i class="fas fa-download"></i> Save SVG
+                    </button>
+                </div>
+            </div>
+
+            <!-- Visualization Canvas -->
+            <div class="flex-1 p-8 overflow-auto flex items-start justify-center bg-slate-50/30" id="plot-wrapper">
+                <div id="plot-container" class="bg-white p-4 rounded shadow-sm border border-slate-100 min-w-[600px] min-h-[400px] flex items-center justify-center">
+                    <p class="text-slate-300 italic text-sm">
+                        <i class="fas fa-arrow-left mr-2"></i> Import data to generate forest plot
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGIC: STATS LIBRARY (Distributions) -->
+    <script>
+        const Stats = {
+            // Standard Normal CDF
+            normalCdf(x) {
+                const t = 1 / (1 + 0.2316419 * Math.abs(x));
+                const d = 0.3989423 * Math.exp(-x * x / 2);
+                let p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+                if (x > 0) p = 1 - p;
+                return p;
+            },
+
+            // Inverse t-distribution (approximation for HKSJ)
+            tCritical(df, alpha = 0.05) {
+                // Hill (1970) approximation
+                const a = 1 / (df - 0.5);
+                const b = 48 / (a * a);
+                const c = ((20700 * a / b - 98) * a - 16) * a + 96.36;
+                const d = ((94.5 / (b + c) - 3) / b + 1) * Math.sqrt(a * Math.PI / 2) * df;
+                const x = d * this.normalQuantile(1 - alpha/2); 
+                return x + Math.pow(x, 3) / (4 * df) + (5 * Math.pow(x, 5) + 16 * x) / (96 * df * df);
+            },
+
+            // Inverse Normal (Probit)
+            normalQuantile(p) {
+                var a1 = -39.6968302866538, a2 = 220.946098424521, a3 = -275.928510446969;
+                var a4 = 138.357751867269, a5 = -30.6647980661472, a6 = 2.50662827745924;
+                var b1 = -54.4760987982241, b2 = 161.585836858041, b3 = -155.698979859887;
+                var b4 = 66.8013118877197, b5 = -13.2806815528857;
+                var c1 = -7.78489400243029e-03, c2 = -3.22396458041136e-01, c3 = -2.40075827716184;
+                var c4 = -2.54973253934373, c5 = 4.37466414146497, c6 = 2.93816398269878;
+                var d1 = 7.78469570904146e-03, d2 = 3.22467129070039e-01, d3 = 2.445134137143;
+                var d4 = 3.75440866190742;
+                var q, t;
+
+                if (p < 0.02425) {
+                    q = Math.sqrt(-2 * Math.log(p));
+                    return (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) /
+                        ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+                } else if (p > 1 - 0.02425) {
+                    q = Math.sqrt(-2 * Math.log(1 - p));
+                    return -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) /
+                        ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+                } else {
+                    q = p - 0.5;
+                    t = q * q;
+                    return (((((a1 * t + a2) * t + a3) * t + a4) * t + a5) * t + a6) * q /
+                        (((((b1 * t + b2) * t + b3) * t + b4) * t + b5) * t + 1);
+                }
+            }
+        };
+    </script>
+
+    <!-- LOGIC: META-ANALYSIS ENGINE -->
+    <script>
+        const MetaEngine = {
+            
+            // 1. DATA PREPARATION & VALIDATION
+            prepareData(studies) {
+                const cleanData = [];
+                const errors = [];
+
+                studies.forEach((s, idx) => {
+                    const verdict = s.verdict;
+                    // SAFETY FIX: Check if verdict AND status exist to prevent crashes
+                    if (!verdict || !verdict.status) {
+                        // Treated as excluded if no verdict data
+                        errors.push({ id: s.id || `File ${idx}`, msg: 'Excluded (No Verdict/Status).' });
+                        return;
+                    }
+
+                    // A. CONSTITUTIONAL SAFETY GATE
+                    if (verdict.status.includes('FAIL')) {
+                        errors.push({ id: s.id || `Study ${idx}`, msg: 'Constitutional Validation Failed', reason: verdict.statusDetail });
+                        return;
+                    }
+
+                    // B. DATA EXTRACTION (Prefer MetaBridge pre-calc, fallback to docket)
+                    let hr, lo, hi, logHR, se, variance;
+                    const meta = s.analysis_ready;
+                    const docket = verdict.docket || {};
+
+                    // Fast Path (Null-safe check for 0 values)
+                    if (meta && meta.log_effect != null && meta.vi != null) {
+                        hr = meta.effect; lo = meta.ci_lo; hi = meta.ci_hi;
+                        logHR = meta.log_effect; se = meta.se; variance = meta.vi;
+                    } else {
+                        // Slow Path
+                        hr = docket['contrast.effect']?.value;
+                        lo = docket['contrast.ciLo']?.value;
+                        hi = docket['contrast.ciHi']?.value;
+
+                        if (!hr || !lo || !hi) {
+                            errors.push({ id: s.id || `Study ${idx}`, msg: 'Incomplete Data' });
+                            return;
+                        }
+                        
+                        // Math Safety
+                        if (hr <= 0 || lo <= 0 || hi <= 0) {
+                            errors.push({ id: s.id || `Study ${idx}`, msg: 'Invalid Values (≤0)' });
+                            return;
+                        }
+
+                        logHR = Math.log(hr);
+                        const logLo = Math.log(lo);
+                        const logHi = Math.log(hi);
+                        se = (logHi - logLo) / 3.92; // 95% CI Assumption
+                        variance = se * se;
+                    }
+
+                    // C. FINAL SANITY CHECK
+                    if (!Number.isFinite(logHR) || !Number.isFinite(variance) || variance <= 0) {
+                        errors.push({ id: s.id || `Study ${idx}`, msg: 'Math Error (NaN or Zero Variance)' });
+                        return;
+                    }
+
+                    // D. WEIGHTING (Inverse Variance)
+                    const weight = 1 / variance;
+
+                    cleanData.push({
+                        id: s.id || `Study ${cleanData.length + 1}`,
+                        hr, lo, hi,
+                        logHR, se, variance, weight,
+                        // Visual metadata
+                        year: s.metadata?.year || '',
+                        n: docket['arm.n']?.value || 0
+                    });
+                });
+
+                return { data: cleanData, errors };
+            },
+
+            // 2. POOLING (Fixed & Random with HKSJ)
+            pool(data, model, useHksj) {
+                if (data.length === 0) return null;
+
+                // A. Fixed Effect (IV)
+                let sumWi = 0;
+                let sumWiYi = 0;
+                data.forEach(d => {
+                    sumWi += d.weight;
+                    sumWiYi += d.weight * d.logHR;
+                });
+
+                const feLogEffect = sumWiYi / sumWi;
+                const feSe = Math.sqrt(1 / sumWi);
+
+                // B. Heterogeneity
+                let Q = 0;
+                data.forEach(d => {
+                    Q += d.weight * Math.pow(d.logHR - feLogEffect, 2);
+                });
+
+                const df = data.length - 1;
+                const I2 = df > 0 && Q > 0 ? Math.max(0, (Q - df) / Q) * 100 : 0;
+                
+                // C. Random Effects (DL)
+                let tau2 = 0;
+                if (Q > df && sumWi > 0) {
+                    let sumWiSq = 0;
+                    data.forEach(d => sumWiSq += d.weight * d.weight);
+                    const C = sumWi - (sumWiSq / sumWi);
+                    if (C > 0) tau2 = (Q - df) / C;
+                }
+
+                if (model === 'fixed') {
+                    data.forEach(d => d.plotWeight = (d.weight / sumWi) * 100);
+                    return this.formatResult(feLogEffect, feSe, Q, df, I2, 0, data, 'Fixed Effect');
+                } else {
+                    // Random Effects Re-weighting
+                    let sumWiStar = 0;
+                    let sumWiStarYi = 0;
+                    
+                    data.forEach(d => {
+                        const wiStar = 1 / (d.variance + tau2);
+                        sumWiStar += wiStar;
+                        sumWiStarYi += wiStar * d.logHR;
+                        d.reWeight = wiStar;
+                    });
+                    
+                    const reLogEffect = sumWiStarYi / sumWiStar;
+                    let reSe = Math.sqrt(1 / sumWiStar);
+                    let methodLabel = 'Random (DL)';
+
+                    // D. Knapp-Hartung-Sidik-Jonk (HKSJ) Adjustment
+                    if (useHksj && df > 0) {
+                        let sumResidSq = 0;
+                        data.forEach(d => {
+                            // HKSJ uses the RE weights
+                            sumResidSq += d.reWeight * Math.pow(d.logHR - reLogEffect, 2);
+                        });
+                        
+                        // qHKSJ is the variance inflation factor relative to DL SE^2
+                        // The HKSJ variance = (1/sumWi*) * qHKSJ
+                        const qHKSJ = sumResidSq / df;
+                        
+                        // Enforce that SE doesn't shrink below DL (standard practice safeguard)
+                        const varHKSJ = (1 / sumWiStar) * Math.max(1, qHKSJ); 
+                        reSe = Math.sqrt(varHKSJ);
+                        
+                        methodLabel = 'Random (DL+HKSJ)';
+                    }
+                    
+                    // Normalize plot weights
+                    data.forEach(d => d.plotWeight = (d.reWeight / sumWiStar) * 100);
+
+                    return this.formatResult(reLogEffect, reSe, Q, df, I2, tau2, data, methodLabel, useHksj);
+                }
+            },
+
+            formatResult(logEffect, se, Q, df, I2, tau2, data, modelName, isHksj) {
+                const effect = Math.exp(logEffect);
+                
+                // Critical value: t-dist for HKSJ, Normal for others
+                let crit = 1.96;
+                if (isHksj && df > 0) {
+                    crit = Stats.tCritical(df); 
+                }
+
+                const ciLo = Math.exp(logEffect - crit * se);
+                const ciHi = Math.exp(logEffect + crit * se);
+                
+                // P-Value
+                const z = Math.abs(logEffect / se);
+                const p = 2 * (1 - Stats.normalCdf(z));
+
+                // Prediction Interval (Approximate 95%)
+                let piLo = null, piHi = null;
+                if (tau2 > 0 && df >= 2) {
+                    const tPred = Stats.tCritical(df - 1);
+                    const sePred = Math.sqrt(se*se + tau2);
+                    piLo = Math.exp(logEffect - tPred * sePred);
+                    piHi = Math.exp(logEffect + tPred * sePred);
+                }
+
+                return { 
+                    effect, ciLo, ciHi, 
+                    piLo, piHi,
+                    Q, df, I2, tau2, p, 
+                    studies: data, modelName 
+                };
+            },
+
+            // 4. RENDERER (Safe DOM)
+            renderForest(res, containerId) {
+                const container = document.getElementById(containerId);
+                container.innerHTML = '';
+
+                const w = 700;
+                const topPad = 60;
+                const bottomPad = 50;
+                const rowHeight = 35;
+                const h = topPad + (res.studies.length * rowHeight) + bottomPad;
+                const leftPad = 150; 
+                const rightPad = 100; 
+                const plotW = w - leftPad - rightPad;
+                
+                // Determine Range including PI
+                const lows = res.studies.map(s => s.lo).concat([res.ciLo]);
+                const highs = res.studies.map(s => s.hi).concat([res.ciHi]);
+                // Only include PI in range if valid
+                if (res.piLo && res.piHi) { lows.push(res.piLo); highs.push(res.piHi); }
+                
+                const minData = Math.min(...lows);
+                const maxData = Math.max(...highs);
+                
+                let minDomain = Math.max(0.01, minData * 0.8);
+                let maxDomain = maxData * 1.2;
+                if (minDomain > 0.8) minDomain = 0.5;
+                if (maxDomain < 1.2) maxDomain = 1.5;
+
+                const logMin = Math.log(minDomain);
+                const logMax = Math.log(maxDomain);
+                const xScale = (val) => leftPad + ((Math.log(val) - logMin) / (logMax - logMin)) * plotW;
+
+                const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.setAttribute("width", w);
+                svg.setAttribute("height", h);
+                svg.style.fontFamily = "Inter, sans-serif";
+                svg.style.fontSize = "12px";
+
+                // A. Grid
+                const x1 = xScale(1);
+                const lineNull = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                lineNull.setAttribute("x1", x1); lineNull.setAttribute("x2", x1);
+                lineNull.setAttribute("y1", topPad - 10); lineNull.setAttribute("y2", h - bottomPad + 10);
+                lineNull.setAttribute("class", "forest-null");
+                svg.appendChild(lineNull);
+
+                // B. Studies
+                res.studies.forEach((s, i) => {
+                    const y = topPad + (i * rowHeight) + (rowHeight/2);
+                    
+                    // Label
+                    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    label.setAttribute("x", 10); label.setAttribute("y", y + 4);
+                    label.textContent = s.id;
+                    svg.appendChild(label);
+
+                    // Values
+                    const val = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    val.setAttribute("x", w - 10); val.setAttribute("y", y + 4);
+                    val.setAttribute("text-anchor", "end");
+                    val.textContent = `${s.hr.toFixed(2)} [${s.lo.toFixed(2)}, ${s.hi.toFixed(2)}]`;
+                    svg.appendChild(val);
+
+                    // CI Line
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("x1", xScale(s.lo)); line.setAttribute("x2", xScale(s.hi));
+                    line.setAttribute("y1", y); line.setAttribute("y2", y);
+                    line.setAttribute("class", "forest-line");
+                    svg.appendChild(line);
+
+                    // Point Box
+                    const xPoint = xScale(s.hr);
+                    const boxSize = Math.min(14, Math.max(4, Math.sqrt(s.plotWeight) * 1.5)); 
+                    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    rect.setAttribute("x", xPoint - boxSize/2); rect.setAttribute("y", y - boxSize/2);
+                    rect.setAttribute("width", boxSize); rect.setAttribute("height", boxSize);
+                    rect.setAttribute("class", "forest-box");
+                    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+                    title.textContent = `Weight: ${s.plotWeight.toFixed(1)}%`;
+                    rect.appendChild(title);
+                    svg.appendChild(rect);
+                });
+
+                // C. Pooled Diamond & PI
+                const yPool = h - bottomPad / 1.5;
+                const xPool = xScale(res.effect);
+                const xPoolLo = xScale(res.ciLo);
+                const xPoolHi = xScale(res.ciHi);
+                
+                // Prediction Interval Whiskers
+                if (res.piLo && res.piHi) {
+                    const xPILo = xScale(res.piLo);
+                    const xPIHi = xScale(res.piHi);
+                    const piLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    piLine.setAttribute("x1", xPILo); piLine.setAttribute("x2", xPIHi);
+                    piLine.setAttribute("y1", yPool); piLine.setAttribute("y2", yPool);
+                    piLine.setAttribute("class", "forest-pi");
+                    // Append BEFORE diamond so diamond is on top
+                    svg.appendChild(piLine);
+                    
+                    // Optional: Tiny caps for PI
+                    const capH = 4;
+                    const cap1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    cap1.setAttribute("x1", xPILo); cap1.setAttribute("x2", xPILo);
+                    cap1.setAttribute("y1", yPool - capH); cap1.setAttribute("y2", yPool + capH);
+                    cap1.setAttribute("stroke", "#ef4444");
+                    svg.appendChild(cap1);
+                    
+                    const cap2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    cap2.setAttribute("x1", xPIHi); cap2.setAttribute("x2", xPIHi);
+                    cap2.setAttribute("y1", yPool - capH); cap2.setAttribute("y2", yPool + capH);
+                    cap2.setAttribute("stroke", "#ef4444");
+                    svg.appendChild(cap2);
+                }
+
+                const diamond = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+                const dPts = `${xPoolLo},${yPool} ${xPool},${yPool-6} ${xPoolHi},${yPool} ${xPool},${yPool+6}`;
+                diamond.setAttribute("points", dPts);
+                diamond.setAttribute("class", "forest-diamond");
+                svg.appendChild(diamond);
+
+                // Pooled Label
+                const poolLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                poolLabel.setAttribute("x", 10); poolLabel.setAttribute("y", yPool + 4);
+                poolLabel.setAttribute("font-weight", "bold");
+                poolLabel.textContent = res.modelName;
+                svg.appendChild(poolLabel);
+
+                const poolVal = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                poolVal.setAttribute("x", w - 10); poolVal.setAttribute("y", yPool + 4);
+                poolVal.setAttribute("text-anchor", "end");
+                poolVal.setAttribute("font-weight", "bold");
+                poolVal.textContent = `${res.effect.toFixed(2)} [${res.ciLo.toFixed(2)}, ${res.ciHi.toFixed(2)}]`;
+                svg.appendChild(poolVal);
+
+                // D. Axis Ticks
+                const ticks = [0.1, 0.2, 0.5, 1, 2, 5, 10].filter(t => t >= minDomain && t <= maxDomain);
+                ticks.forEach(t => {
+                    const tx = xScale(t);
+                    const tickLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    tickLine.setAttribute("x1", tx); tickLine.setAttribute("x2", tx);
+                    tickLine.setAttribute("y1", h - 15); tickLine.setAttribute("y2", h - 11);
+                    tickLine.setAttribute("stroke", "#94a3b8");
+                    svg.appendChild(tickLine);
+
+                    const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    txt.setAttribute("x", tx); txt.setAttribute("y", h);
+                    txt.setAttribute("text-anchor", "middle");
+                    txt.setAttribute("font-size", "10");
+                    txt.setAttribute("fill", "#64748b");
+                    txt.textContent = t;
+                    svg.appendChild(txt);
+                });
+
+                container.appendChild(svg);
+            }
+        };
+
+        // =================================================================
+        // UI & ORCHESTRATION
+        // =================================================================
+        const App = {
+            studies: [],
+            results: null,
+
+            handleFiles(files) {
+                Array.from(files).forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const json = JSON.parse(e.target.result);
+                            // Synthesize an ID if missing
+                            json.id = json.id || file.name.replace('.json', '');
+                            this.studies.push(json);
+                            
+                            // Re-render when all loaded
+                            if (this.studies.length === files.length) {
+                                this.updateUI();
+                            }
+                        } catch (err) { console.error("Bad JSON", err); }
+                    };
+                    reader.readAsText(file);
+                });
+            },
+
+            loadDemoData() {
+                // SGLT2i Meta-Analysis Demo Data
+                this.studies = [
+                    { id: "DAPA-HF", verdict: { status: "PASS", docket: { 'contrast.effect': {value: 0.74}, 'contrast.ciLo': {value: 0.65}, 'contrast.ciHi': {value: 0.85} } } },
+                    { id: "EMPEROR-Reduced", verdict: { status: "PASS", docket: { 'contrast.effect': {value: 0.75}, 'contrast.ciLo': {value: 0.65}, 'contrast.ciHi': {value: 0.86} } } },
+                    { id: "SOLOIST-WHF", verdict: { status: "WARN", docket: { 'contrast.effect': {value: 0.67}, 'contrast.ciLo': {value: 0.52}, 'contrast.ciHi': {value: 0.85} } } }, // Status WARN still includes
+                    { id: "DELIVER", verdict: { status: "PASS", docket: { 'contrast.effect': {value: 0.82}, 'contrast.ciLo': {value: 0.73}, 'contrast.ciHi': {value: 0.92} } } },
+                    { id: "EMPEROR-Preserved", verdict: { status: "PASS", docket: { 'contrast.effect': {value: 0.79}, 'contrast.ciLo': {value: 0.69}, 'contrast.ciHi': {value: 0.90} } } },
+                    { id: "BAD-DATA-TRIAL", verdict: { status: "FAIL", docket: { 'contrast.effect': {value: 0.01}, 'contrast.ciLo': {value: 0.01}, 'contrast.ciHi': {value: 0.99} } } } // Should be excluded
+                ];
+                this.updateUI();
+            },
+
+            updateUI() {
+                this.renderList();
+                this.runAnalysis();
+            },
+
+            renderList() {
+                const list = document.getElementById('study-list');
+                const count = document.getElementById('study-count');
+                list.innerHTML = '';
+                
+                let included = 0;
+
+                this.studies.forEach(s => {
+                    // Safe access pattern for list rendering
+                    const verdict = s.verdict || {};
+                    const status = verdict.status || 'UNKNOWN';
+                    
+                    // SAFETY FIX: Treat NO STATUS as EXCLUDED
+                    const isFail = !verdict.status || status.includes('FAIL');
+                    
+                    if (!isFail) included++;
+
+                    const div = document.createElement('div');
+                    div.className = `p-3 border-b flex justify-between items-center ${isFail ? 'bg-red-50 opacity-60' : 'bg-white'}`;
+                    
+                    let badge = isFail 
+                        ? `<span class="px-2 py-1 bg-red-100 text-red-700 text-[10px] rounded font-bold border border-red-200">EXCLUDED</span>`
+                        : `<span class="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] rounded font-bold border border-emerald-200">INCLUDED</span>`;
+
+                    // Robust Summary Construction
+                    const docket = verdict.docket || {};
+                    let summary = 'Invalid Data';
+                    
+                    // Option 1: Reconstruct from docket
+                    if (docket['contrast.effect'] && docket['contrast.ciLo'] && docket['contrast.ciHi']) {
+                         summary = `HR ${docket['contrast.effect'].value} [${docket['contrast.ciLo'].value}-${docket['contrast.ciHi'].value}]`;
+                    } 
+                    // Option 2: Use analysis_ready if available
+                    else if (s.analysis_ready && s.analysis_ready.effect) {
+                         const ar = s.analysis_ready;
+                         summary = `${ar.metric || 'Effect'} ${ar.effect.toFixed(2)} [${ar.ci_lo.toFixed(2)}-${ar.ci_hi.toFixed(2)}]`;
+                    }
+                    // Option 3: Fallback for failed/incomplete
+                    else if (isFail) {
+                         summary = verdict.statusDetail || 'Constitutional Fail';
+                    }
+
+                    div.innerHTML = `<div><div class="font-bold text-sm text-slate-700 truncate w-32" title="${s.id}">${s.id}</div><div class="text-[10px] text-slate-500 font-mono">${summary}</div></div>${badge}`;
+                    list.appendChild(div);
+                });
+                count.textContent = `${included} / ${this.studies.length} included`;
+            },
+
+            runAnalysis() {
+                const modelRadio = document.querySelector('input[name="model"]:checked');
+                if (!modelRadio) return;
+                const model = modelRadio.value;
+                const useHksj = document.getElementById('use-hksj').checked;
+                const showPI = document.getElementById('show-pi').checked;
+                
+                const { data, errors } = MetaEngine.prepareData(this.studies);
+                if (errors.length > 0) console.warn("Exclusions:", errors);
+
+                const result = MetaEngine.pool(data, model, useHksj);
+                
+                if (!result) {
+                    document.getElementById('plot-container').innerHTML = '<p class="text-slate-300 italic text-sm">Insufficient valid data.</p>';
+                    ['stat-pool','stat-ci','stat-i2','stat-tau','stat-p'].forEach(id => document.getElementById(id).textContent = '--');
+                    return;
+                }
+
+                // PI Toggle Logic
+                if (!showPI) { result.piLo = null; result.piHi = null; }
+
+                document.getElementById('stat-pool').textContent = result.effect.toFixed(2);
+                document.getElementById('stat-ci').textContent = `[${result.ciLo.toFixed(2)} - ${result.ciHi.toFixed(2)}]`;
+                
+                // Heterogeneity Reset (Bug Fix for k=1)
+                if (result.studies.length > 1) {
+                    document.getElementById('stat-i2').textContent = `${result.I2.toFixed(0)}%`;
+                    document.getElementById('stat-tau').textContent = result.tau2.toFixed(3);
+                } else {
+                    document.getElementById('stat-i2').textContent = '--';
+                    document.getElementById('stat-tau').textContent = '--';
+                }
+                
+                document.getElementById('stat-p').textContent = result.p < 0.001 ? '<0.001' : result.p.toFixed(3);
+                
+                MetaEngine.renderForest(result, 'plot-container');
+            },
+
+            downloadPlot() {
+                const svg = document.querySelector('#plot-container svg');
+                if (!svg) { alert("No forest plot."); return; }
+                const data = (new XMLSerializer()).serializeToString(svg);
+                const blob = new Blob([data], {type: 'image/svg+xml;charset=utf-8'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'meta_analysis.svg';
+                a.click();
+            }
+        };
+
+        App.loadDemoData();
+    </script>
+</body>
+</html>
